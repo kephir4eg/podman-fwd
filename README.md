@@ -13,3 +13,7 @@ Behold!
 `podman-fwd <local_host:port> <target_container> <remote_host:port>`
 
 Not a perfect syntax, but useful. Enjoy.
+
+This works fine with docker too. 
+
+This scripts requires `socat` installed.
