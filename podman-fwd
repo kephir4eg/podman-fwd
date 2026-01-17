@@ -1,0 +1,86 @@
+#!/bin/bash
+
+# Port forwarding using socat from podman (or docker) container
+# Forwards a port from local machine to a container via another container's network
+
+set -e
+
+# Usage function
+usage() {
+    cat << EOF
+Usage: $0 <local_host:port> <target_container> <remote_host:port>
+
+Arguments:
+  local_host:port      - Local address and port to listen on (e.g., 0.0.0.0:9978)
+  target_container     - Name of the target container to use network from
+  remote_host:port     - Remote address and port inside container (e.g., localhost:18087)
+
+Environment Variables:
+  DEBUG                - If set, adds -d -d flags to local socat for verbose debugging
+  PODMAN              - Podman command to use (default: podman)
+
+Example:
+  $0 0.0.0.0:9978 localhost:18087 target-container
+  DEBUG=1 PODMAN=podman $0 127.0.0.1:9978 container1 localhost:18087
+  DEBUG=1 PODMAN=docker $0 localhost:9978 container2 localhost:18087
+EOF
+    exit 1
+}
+
+# Check arguments
+if [ $# -ne 3 ]; then
+    echo "Error: Wrong number of arguments"
+    usage
+fi
+
+LOCAL_ADDR="$1"
+REMOTE_ADDR="$3"
+TARGET_CONTAINER="$2"
+
+# Set podman command
+PODMAN_CMD="${PODMAN:-podman}"
+
+# Parse local host and port
+LOCAL_HOST="${LOCAL_ADDR%:*}"
+LOCAL_PORT="${LOCAL_ADDR##*:}"
+
+# Parse remote host and port
+REMOTE_HOST="${REMOTE_ADDR%:*}"
+REMOTE_PORT="${REMOTE_ADDR##*:}"
+
+# Build socat debug flags
+SOCAT_DEBUG=""
+if [ -n "$DEBUG" ]; then
+    SOCAT_DEBUG="-d -d"
+fi
+
+# Check if socat is available
+if ! command -v socat &> /dev/null; then
+    echo "Error: socat is not installed"
+    exit 1
+fi
+
+# Check if podman is available
+if ! command -v "$PODMAN_CMD" &> /dev/null; then
+    echo "Error: $PODMAN_CMD is not installed or not in PATH"
+    exit 1
+fi
+
+# Check if target container exists
+if ! "$PODMAN_CMD" container exists "$TARGET_CONTAINER"; then
+    echo "Error: Container '$TARGET_CONTAINER' does not exist"
+    exit 1
+fi
+
+echo "Starting port forward:"
+echo "  Local:  $LOCAL_HOST:$LOCAL_PORT"
+echo "  Remote: $REMOTE_HOST:$REMOTE_PORT (via container: $TARGET_CONTAINER)"
+echo "  Debug:  ${DEBUG:+enabled}"
+echo ""
+echo "Press Ctrl+C to stop..."
+echo ""
+
+# Execute socat with port forwarding
+exec socat $SOCAT_DEBUG \
+    "TCP4-LISTEN:$LOCAL_PORT,bind=$LOCAL_HOST,fork,reuseaddr" \
+    "EXEC:\"$PODMAN_CMD run --rm -i --network container:$TARGET_CONTAINER alpine/socat - tcp4:$REMOTE_HOST:$REMOTE_PORT\""
